@@ -1,0 +1,21 @@
+name: Init Consul Cluster
+on:
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+jobs:
+  init-consul-cluster:
+    env:
+      NODE_ENV: production
+      SSH_USERNAME: ec2-user
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Print Output - Current IP
+        run: echo ${{ github.event.client_payload.current_ip }}
+
+      - name: Print Output - TF Output
+        run: echo ${{ github.event.client_payload.tf-output }}

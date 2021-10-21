@@ -1,0 +1,48 @@
+name: Init Consul Cluster
+on:
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+jobs:
+  init-consul-cluster:
+    env:
+      AWS_REGION: us-east-1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.TERRAFORM_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.TERRAFORM_AWS_ACCESS_SECRET_ID }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Apply Network Infrastructure
+        uses: dflook/terraform-apply@v1
+        with:
+          path: "ec2/terraform/network"
+          auto_approve: true
+
+      - name: Terraform Apply Base Infrastructure
+        uses: dflook/terraform-apply@v1
+        with:
+          path: "ec2/terraform/base"
+          auto_approve: true
+
+      - name: Get Terraform Base Infrastructure Outputs
+        uses: dflook/terraform-output@v1
+        id: tf-outputs
+        with:
+          path: ec2/terraform/base
+          auto_approve: true
+
+      - name: Dispatch Setup Consul Cluster
+        uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: deploy
+          client-payload: '{"ref": "${{ github.ref }}", "current_ip":"init", "tf-output": ${{ steps.tf-outputs.outputs.server_instance_private_ips }} }'
