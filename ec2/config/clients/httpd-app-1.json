@@ -1,14 +1,14 @@
 {
   "node_name": "NODE_NAME",
   "datacenter": "demo-datacenter",
-  "ui": true,
+  "ui": false,
   "log_level": "INFO",
-  "server": true,
+  "server": false,
   "verify_incoming": true,
   "verify_outgoing": true,
   "verify_server_hostname": true,
-  "key_file": "/etc/consul.d/consul/certs/server.key",
-  "cert_file": "/etc/consul.d/consul/certs/server.pem",
+  "key_file": "/etc/consul.d/consul/certs/client.key",
+  "cert_file": "/etc/consul.d/consul/certs/client.pem",
   "ca_file": "/etc/consul.d/consul/certs/ca.pem",
   "encrypt": "ENCRYPTION_KEY",
   "encrypt_verify_incoming": true,
@@ -18,20 +18,9 @@
   "client_addr": "0.0.0.0",
   "bind_addr": "BIND_ADDRESS",
   "advertise_addr": "ADVERTISE_ADDRESS",
-  "bootstrap_expect": SERVER_COUNT,
   "retry_join": [
     "provider=aws tag_key=Consul-Cluster-Name tag_value=demo-datacenter region=us-east-1"
   ],
   "enable_syslog": true,
-  "acl": {
-    "enabled": true,
-    "default_policy": "allow",
-    "down_policy": "extend-cache"
-  },
-  "performance": {
-    "raft_multiplier": 1
-  },
-  "connect": {
-    "enabled": true
-  }
+  "enable_debug": true
 }

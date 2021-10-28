@@ -1,0 +1,112 @@
+name: Setup Dashboard App
+on:
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+jobs:
+  setup-dashboard-app:
+    env:
+      SSH_USERNAME: ec2-user
+      CONSUL_CLUSTER_NAME: demo-datacenter
+      NODE_NAME: demo-datacenter-client-node-1
+      AWS_REGION: us-east-1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.TERRAFORM_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.TERRAFORM_AWS_ACCESS_SECRET_ID }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get Server Instance IP Address
+        id: get-server-instance-ip-address
+        run: |
+          echo ::set-output name=public_ip_address::$(aws ec2 describe-instances --filters "Name=tag:Consul-Cluster-Name,Values=${{ env.CONSUL_CLUSTER_NAME }}" "Name=tag:Agent-Type,Values=client" "Name=tag:App-Name,Values=Dashboard-App" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].PublicIpAddress" --output text --region ${{ env.AWS_REGION }} )
+          echo ::set-output name=private_ip_address::$(aws ec2 describe-instances --filters "Name=tag:Consul-Cluster-Name,Values=${{ env.CONSUL_CLUSTER_NAME }}" "Name=tag:Agent-Type,Values=client" "Name=tag:App-Name,Values=Dashboard-App" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].PrivateIpAddress" --output text --region ${{ env.AWS_REGION }} )
+
+      - name: Setup CA Cert & Key
+        run: |
+          mkdir -p ./ec2/config/certs
+          echo "${{ secrets.CONSUL_CERTIFICATE_AUTHORITY_CERT }}" > ./ec2/config/certs/consul-agent-ca.pem
+          echo "${{ secrets.CONSUL_CERTIFICATE_AUTHORITY_KEY }}" > ./ec2/config/certs/consul-agent-ca-key.pem
+
+      - name: Setup Consul
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install consul
+
+      - name: Set Up Certs
+        run: |
+          cd ./ec2/config/certs/
+          consul tls cert create -client -dc=${{ env.CONSUL_CLUSTER_NAME }}
+          rm -rf consul-agent-ca-key.pem
+          mv consul-agent-ca.pem ca.pem
+          mv ${{ env.CONSUL_CLUSTER_NAME }}-client-consul-0.pem client.pem
+          mv ${{ env.CONSUL_CLUSTER_NAME }}-client-consul-0-key.pem client.key
+
+      - name: Set Up Files
+        run: |
+          rm -rf ./ec2/config/server-config.json
+          mv ./ec2/config/clients/dashboard-app.json ./ec2/config/client-config.json
+          mv ./ec2/config/clients/dashboard-app-service.json ./ec2/config/client-app-service.json
+          rm -rf ./ec2/config/clients
+          rm -rf ./ec2/config/systemd/consul.service
+          rm -rf ./ec2/config/systemd/counting.service
+          mv ./ec2/config/systemd/consul-client.service ./ec2/config/systemd/consul.service
+          rm -rf ./ec2/scripts/setup-server.sh
+          rm -rf ./ec2/scripts/counting-app.sh
+          rm -rf ./ec2/scripts/counting-startup.sh
+          rm -rf ./ec2/scripts/httpd-app.sh
+          ls ./ec2/config/
+          ls ./ec2/config/certs/
+          ls ./ec2/scripts/
+          ls ./ec2/config/systemd/
+
+      - name: Run Preparation
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ steps.get-server-instance-ip-address.outputs.public_ip_address }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            rm -rf /home/${{ env.SSH_USERNAME }}/consul
+            mkdir -p /home/${{ env.SSH_USERNAME }}/consul
+            mkdir -p /home/${{ env.SSH_USERNAME }}/consul/scripts
+
+      - name: Copy Config Files
+        uses: wlixcc/SFTP-Deploy-Action@v1.0
+        with:
+          username: ${{ env.SSH_USERNAME }}
+          server: ${{ steps.get-server-instance-ip-address.outputs.public_ip_address }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: "./ec2/config/*"
+          remote_path: "/home/${{ env.SSH_USERNAME }}/consul/"
+          args: "-o ConnectTimeout=60"
+
+      - name: Copy Script Files
+        uses: wlixcc/SFTP-Deploy-Action@v1.0
+        with:
+          username: ${{ env.SSH_USERNAME }}
+          server: ${{ steps.get-server-instance-ip-address.outputs.public_ip_address }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: "./ec2/scripts/*"
+          remote_path: "/home/${{ env.SSH_USERNAME }}/consul/scripts/"
+          args: "-o ConnectTimeout=60"
+
+      - name: Run Configure Script
+        uses: appleboy/ssh-action@master
+        with:
+          timeout: 60s
+          command_timeout: 10m
+          host: ${{ steps.get-server-instance-ip-address.outputs.public_ip_address }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            chmod +x /home/${{ env.SSH_USERNAME }}/consul/scripts/dashboard-app.sh
+            /home/${{ env.SSH_USERNAME }}/consul/scripts/dashboard-app.sh ${{ secrets.CONSUL_GOSSIP_ENCRYPTION_KEY }} ${{ steps.get-server-instance-ip-address.outputs.private_ip_address }} ${{ steps.get-server-instance-ip-address.outputs.private_ip_address }} ${{ env.NODE_NAME }} dashboard-app-1

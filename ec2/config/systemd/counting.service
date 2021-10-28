@@ -1,0 +1,14 @@
+[Unit]
+Description="Counting Service"
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=/home/ec2-user/startup.sh
+
+[Service]
+Type=notify
+ExecStart=/home/ec2-user/startup.sh
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

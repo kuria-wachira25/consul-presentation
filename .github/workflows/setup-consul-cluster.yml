@@ -1,21 +1,110 @@
-name: Init Consul Cluster
+name: Setup Consul Cluster
 on:
-  workflow_dispatch:
+  repository_dispatch:
+    types: [setup-consul-cluster]
 defaults:
   run:
     shell: bash
 jobs:
-  init-consul-cluster:
+  setup-consul-cluster:
     env:
-      NODE_ENV: production
       SSH_USERNAME: ec2-user
+      CONSUL_CLUSTER_NAME: demo-datacenter
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Print Output - Current IP
-        run: echo ${{ github.event.client_payload.current_ip }}
+      - name: Get Current IP Address Of Server To Configure
+        id: get-current-ip
+        run: |
+          echo ::set-output name=public_ip_address::$( echo "$PUBLIC_ADDRESSES" | sed -r 's/-/"/g' | jq -r '.[${{ github.event.client_payload.index }}]' )
+          echo ::set-output name=private_ip_address::$( echo "$PRIVATE_ADDRESSES" | sed -r 's/-/"/g' | jq -r '.[${{ github.event.client_payload.index }}]' )
+        env:
+          PUBLIC_ADDRESSES: ${{ github.event.client_payload.public_ip_addresses }}
+          PRIVATE_ADDRESSES: ${{ github.event.client_payload.private_ip_addresses }}
 
-      - name: Print Output - TF Output
-        run: echo ${{ github.event.client_payload.tf-output }}
+      - name: Setup CA Cert & Key
+        run: |
+          mkdir -p ./ec2/config/certs
+          echo "${{ secrets.CONSUL_CERTIFICATE_AUTHORITY_CERT }}" > ./ec2/config/certs/consul-agent-ca.pem
+          echo "${{ secrets.CONSUL_CERTIFICATE_AUTHORITY_KEY }}" > ./ec2/config/certs/consul-agent-ca-key.pem
+
+      - name: Setup Consul
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install consul
+
+      - name: Set Up Certs
+        run: |
+          cd ./ec2/config/certs/
+          consul tls cert create -server -dc=${{ env.CONSUL_CLUSTER_NAME }} -node=demo-datacenter-server-node-${{ github.event.client_payload.index }}
+          rm -rf consul-agent-ca-key.pem
+          mv consul-agent-ca.pem ca.pem
+          mv ${{ env.CONSUL_CLUSTER_NAME }}-server-consul-0.pem server.pem
+          mv ${{ env.CONSUL_CLUSTER_NAME }}-server-consul-0-key.pem server.key
+
+      - name: Run Preparation
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ steps.get-current-ip.outputs.public_ip_address }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            rm -rf /home/${{ env.SSH_USERNAME }}/consul
+            mkdir -p /home/${{ env.SSH_USERNAME }}/consul
+            mkdir -p /home/${{ env.SSH_USERNAME }}/consul/scripts
+
+      - name: Copy Config Files
+        uses: wlixcc/SFTP-Deploy-Action@v1.0
+        with:
+          username: ${{ env.SSH_USERNAME }}
+          server: ${{ steps.get-current-ip.outputs.public_ip_address }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: "./ec2/config/*"
+          remote_path: "/home/${{ env.SSH_USERNAME }}/consul/"
+          args: "-o ConnectTimeout=60"
+
+      - name: Copy Script Files
+        uses: wlixcc/SFTP-Deploy-Action@v1.0
+        with:
+          username: ${{ env.SSH_USERNAME }}
+          server: ${{ steps.get-current-ip.outputs.public_ip_address }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: "./ec2/scripts/*"
+          remote_path: "/home/${{ env.SSH_USERNAME }}/consul/scripts/"
+          args: "-o ConnectTimeout=60"
+
+      - name: Run Configure Script
+        uses: appleboy/ssh-action@master
+        with:
+          timeout: 60s
+          command_timeout: 10m
+          host: ${{ steps.get-current-ip.outputs.public_ip_address }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            chmod +x /home/${{ env.SSH_USERNAME }}/consul/scripts/setup-server.sh
+            /home/${{ env.SSH_USERNAME }}/consul/scripts/setup-server.sh ${{ secrets.CONSUL_GOSSIP_ENCRYPTION_KEY }} ${{ steps.get-current-ip.outputs.private_ip_address }} ${{ steps.get-current-ip.outputs.private_ip_address }} demo-datacenter-server-node-${{ github.event.client_payload.index }} ${{ secrets.SERVER_COUNT }}
+
+      - name: Get Next Index
+        id: get-next-index
+        run: echo ::set-output name=next_index::$( echo ${{ github.event.client_payload.index }} | python3 -c "import sys,json; print(str(int(json.load(sys.stdin))+1));" )
+
+      - name: Check If To Continue Configure
+        id: check-if-can-continue
+        run: |
+          if [ ${{ steps.get-next-index.outputs.next_index }} -eq ${{ secrets.SERVER_COUNT }} ]; then
+            exit 1
+          fi
+        continue-on-error: true
+
+      - name: Dispatch Setup Consul Cluster
+        if: ${{ steps.check-if-can-continue.outcome == 'success' }}
+        uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: setup-consul-cluster
+          client-payload: '{"ref": "${{ github.ref }}", "index":"${{ steps.get-next-index.outputs.next_index }}", "public_ip_addresses": "${{ github.event.client_payload.public_ip_addresses }}", "private_ip_addresses": "${{ github.event.client_payload.private_ip_addresses }}" }'

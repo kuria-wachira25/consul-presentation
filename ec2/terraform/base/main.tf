@@ -27,18 +27,37 @@ data "aws_vpc" "vpc" {
   }
 }
 
-data "aws_subnet_ids" "private_subnets_ids" {
+data "aws_subnet_ids" "public_subnets_ids" {
   vpc_id = data.aws_vpc.vpc.id
 
   tags = {
-    Tier = "Private"
+    Tier = "Public"
   }
 }
 
-module "ec2-servers" {
+module "policy" {
+  source = "./modules/policy"
+}
+
+module "ec2_servers" {
   source = "./modules/ec2-servers"
 
-  vpc_subnets_ids = data.aws_subnet_ids.private_subnets_ids.ids
-  consul_cluster_name = var.consul_cluster_name
+  vpc_id                     = data.aws_vpc.vpc.id
+  vpc_subnets_ids            = data.aws_subnet_ids.public_subnets_ids.ids
+  consul_cluster_name        = var.consul_cluster_name
   consul_cluster_server_size = var.consul_cluster_server_size
+  public_subnets             = var.public_subnets
+  instance_profile_name      = module.policy.instance_profile_name
 }
+
+module "ec2_clients" {
+  source = "./modules/ec2-clients"
+
+  vpc_id                     = data.aws_vpc.vpc.id
+  vpc_subnets_ids            = data.aws_subnet_ids.public_subnets_ids.ids
+  consul_cluster_name        = var.consul_cluster_name
+  consul_clients             = var.consul_clients
+  public_subnets             = var.public_subnets
+  instance_profile_name      = module.policy.instance_profile_name
+}
+

@@ -1,0 +1,25 @@
+{
+  "service": {
+    "name": "Counting-App",
+    "id": "counting-app-1",
+    "port": 9003,
+    "connect": {
+      "sidecar_service": {}
+    },
+    "checks": [
+      {
+        "id": "Counting App Http Check",
+        "http": "http://localhost:9003/health",
+        "method": "GET",
+        "interval": "10s",
+        "timeout": "5s"
+      },
+      {
+        "id": "Counting App TCP Check",
+        "tcp": "localhost:9003",
+        "interval": "10s",
+        "timeout": "5s"
+      }
+    ]
+  }
+}

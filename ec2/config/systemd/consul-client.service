@@ -2,13 +2,13 @@
 Description="Consul Service"
 Requires=network-online.target
 After=network-online.target
-ConditionFileNotEmpty=/etc/consul.d/consul/server-config.json
+ConditionFileNotEmpty=/etc/consul.d/consul/client-config.json
 
 [Service]
 Type=notify
 User=consul
 Group=consul
-ExecStart=/usr/bin/consul agent -config-file=/etc/consul.d/consul/server-config.json
+ExecStart=/usr/bin/consul agent -config-file=/etc/consul.d/consul/client-config.json
 ExecReload=/usr/bin/consul reload
 KillMode=process
 Restart=on-failure

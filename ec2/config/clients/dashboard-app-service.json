@@ -1,0 +1,34 @@
+{
+  "service": {
+    "name": "Dashboard-App",
+    "id": "dashboard-app-1",
+    "port": 9002,
+    "connect": {
+      "sidecar_service": {
+        "proxy": {
+          "upstreams": [
+            {
+              "destination_name": "Counting-App",
+              "local_bind_port": 5000
+            }
+          ]
+        }
+      }
+    },
+    "checks": [
+      {
+        "id": "Dashboard App Http Check",
+        "http": "http://localhost:9002/health",
+        "method": "GET",
+        "interval": "10s",
+        "timeout": "5s"
+      },
+      {
+        "id": "Dashboard App TCP Check",
+        "tcp": "localhost:9002",
+        "interval": "10s",
+        "timeout": "5s"
+      }
+    ]
+  }
+}

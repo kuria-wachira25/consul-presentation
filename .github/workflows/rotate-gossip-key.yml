@@ -1,0 +1,57 @@
+name: Rotate Gosspi Key
+on:
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+jobs:
+  rotate-gossip-key:
+    env:
+      AWS_REGION: us-east-1
+      CONSUL_CLUSTER_NAME: demo-datacenter
+      SSH_USERNAME: ec2-user
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.TERRAFORM_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.TERRAFORM_AWS_ACCESS_SECRET_ID }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Consul
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install consul
+
+      - name: Get New Gossip Key
+        id: get-new-gossip-key
+        run: echo ::set-output name=key::$( consul keygen )
+
+      - name: Mask New Gossip Key From Output
+        run: echo "::add-mask::${{ steps.get-new-gossip-key.outputs.key }}"
+
+      - name: Get A Server Instance IP Address
+        id: get-a-server-instance-ip-address
+        run: echo ::set-output name=ip_address::$(aws ec2 describe-instances --filters "Name=tag:Consul-Cluster-Name,Values=${{ env.CONSUL_CLUSTER_NAME }}" "Name=tag:Agent-Type,Values=server" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].PublicIpAddress" --output text --region ${{ env.AWS_REGION }} )
+
+      - name: Rotate Gossip Key
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ steps.get-a-server-instance-ip-address.outputs.ip_address }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            /usr/bin/consul keyring -install ${{ steps.get-new-gossip-key.outputs.key }}
+            /usr/bin/consul keyring -use ${{ steps.get-new-gossip-key.outputs.key }}
+            /usr/bin/consul keyring -remove ${{ secrets.CONSUL_GOSSIP_ENCRYPTION_KEY }}
+
+      - name: Update Gossip Key Secret
+        uses: hmanzur/actions-set-secret@v2.0.0
+        with:
+          name: "CONSUL_GOSSIP_ENCRYPTION_KEY"
+          value: ${{ steps.get-new-gossip-key.outputs.key }}
+          repository: ${{ github.repository }}
+          token: ${{ secrets.GH_TOKEN }}

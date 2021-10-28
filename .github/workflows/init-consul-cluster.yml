@@ -31,18 +31,28 @@ jobs:
         with:
           path: "ec2/terraform/base"
           auto_approve: true
+          var: consul_cluster_server_size=${{ secrets.SERVER_COUNT }}
 
       - name: Get Terraform Base Infrastructure Outputs
         uses: dflook/terraform-output@v1
         id: tf-outputs
         with:
           path: ec2/terraform/base
-          auto_approve: true
+          var: consul_cluster_server_size=${{ secrets.SERVER_COUNT }}
+
+      - id: get-formatted-outputs
+        name: Format Outputs
+        run: |
+          echo ::set-output name=public_ip_addresses::$( echo "$PUBLIC_ADDRESSES" | sed -r 's/"/-/g' )
+          echo ::set-output name=private_ip_addresses::$( echo "$PRIVATE_ADDRESSES" | sed -r 's/"/-/g' )
+        env:
+          PUBLIC_ADDRESSES: ${{ steps.tf-outputs.outputs.server_instance_public_ips }}
+          PRIVATE_ADDRESSES: ${{ steps.tf-outputs.outputs.server_instance_private_ips }}
 
       - name: Dispatch Setup Consul Cluster
         uses: peter-evans/repository-dispatch@v1
         with:
           token: ${{ secrets.GH_TOKEN }}
           repository: ${{ github.repository }}
-          event-type: deploy
-          client-payload: '{"ref": "${{ github.ref }}", "current_ip":"init", "tf-output": ${{ steps.tf-outputs.outputs.server_instance_private_ips }} }'
+          event-type: setup-consul-cluster
+          client-payload: '{"ref": "${{ github.ref }}", "index":"0", "private_ip_addresses": "${{ steps.get-formatted-outputs.outputs.private_ip_addresses }}", "public_ip_addresses": "${{ steps.get-formatted-outputs.outputs.public_ip_addresses }}" }'
