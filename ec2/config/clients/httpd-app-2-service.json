@@ -7,7 +7,7 @@
     "checks": [
       {
         "id": "Httpd App Http Check",
-        "http": "http://localhost:80",
+        "http": "http://localhost",
         "method": "GET",
         "interval": "10s",
         "timeout": "5s"

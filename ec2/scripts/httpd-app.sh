@@ -52,8 +52,8 @@ sleep 20
 consul services register /etc/consul.d/consul/client-app-service.json
 
 # Set up httpd
-sudo yum update -y
-sudo yum install -y httpd
+sudo yum install -y httpd.x86_64
+sudo systemctl enable httpd
 sudo systemctl start httpd
 
 # Clean up
