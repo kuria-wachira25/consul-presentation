@@ -6,13 +6,6 @@
     "port": 80,
     "checks": [
       {
-        "id": "Httpd App Http Check",
-        "http": "http://localhost",
-        "method": "GET",
-        "interval": "10s",
-        "timeout": "5s"
-      },
-      {
         "id": "Httpd App TCP Check",
         "tcp": "localhost:80",
         "interval": "10s",
